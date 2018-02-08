@@ -1,4 +1,5 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/redhat-nfvpe/service-assurance-poc)](https://goreportcard.com/report/github.com/redhat-nfvpe/service-assurance-poc)
+[![Build Status](https://travis-ci.org/redhat-nfvpe/service-assurance-poc.svg?branch=master)](https://travis-ci.org/redhat-nfvpe/service-assurance-poc)
 ## Note about github branch
 ###  collectd branch:
 **collectd branch only works for collectd as incoming data source for metrics.**
@@ -110,7 +111,7 @@ $go run main.go -mhost=localhost -mport=8081 -usesample=true -h=10 -p=100 -t=-1
 
 ```
 --- Usage Details
-  -amqpurl string
+  -amqpurl stringhttps://travis-ci.org/redhat-nfvpe/service-assurance-poc.svg?branch=master
     	AMQP1.0 listener example 127.0.0.1:5672/collectd/telemetry
   -count int
     	Stop after receiving this many messages in total(-1 forever) (OPTIONAL) (default -1)
