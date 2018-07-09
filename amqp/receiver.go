@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"qpid.apache.org/amqp"
 	"qpid.apache.org/electron"
 )
@@ -49,6 +50,15 @@ type AMQPServer struct {
 	notifier    chan string
 	status      chan int
 	connections chan electron.Connection
+	amqpHandler *AMQPHandler
+}
+
+//AMQPHandler ...
+type AMQPHandler struct {
+	totalCount         int64
+	totalProcessed     int64
+	totalCountDesc     *prometheus.Desc
+	totalProcessedDesc *prometheus.Desc
 }
 
 //MockAmqpServer  Create Mock AMQP server
@@ -60,7 +70,7 @@ func MockAmqpServer(notifier chan string) *AMQPServer {
 }
 
 //NewAMQPServer   ...
-func NewAMQPServer(urlStr string, debug bool, msgcount int) *AMQPServer {
+func NewAMQPServer(urlStr string, debug bool, msgcount int, amqpHanlder *AMQPHandler) *AMQPServer {
 	if len(urlStr) == 0 {
 		log.Println("No URL provided")
 		//usage()
@@ -73,7 +83,9 @@ func NewAMQPServer(urlStr string, debug bool, msgcount int) *AMQPServer {
 		status:      make(chan int),
 		msgcount:    msgcount,
 		connections: make(chan electron.Connection, 1),
+		amqpHandler: amqpHanlder,
 	}
+
 	if debug {
 		debugr = func(format string, data ...interface{}) {
 			log.Printf(format, data...)
@@ -83,6 +95,64 @@ func NewAMQPServer(urlStr string, debug bool, msgcount int) *AMQPServer {
 	// not exported
 	go server.start()
 	return server
+}
+
+//GetHandler  ...
+func (s *AMQPServer) GetHandler() *AMQPHandler {
+	return s.amqpHandler
+}
+
+//NewAMQPHandler  ...
+func NewAMQPHandler(source string) *AMQPHandler {
+	plabels := prometheus.Labels{}
+	plabels["source"] = source
+	return &AMQPHandler{
+		totalCount:     0,
+		totalProcessed: 0,
+		totalCountDesc: prometheus.NewDesc("sa_collectd_total_amqp_message_recv_count",
+			"Total count of amqp message recievd.",
+			nil, plabels,
+		),
+		totalProcessedDesc: prometheus.NewDesc("sa_collectd_total_amqp_processed_message_count",
+			"Total count of amqp message processed.",
+			nil, plabels,
+		),
+	}
+}
+
+//IncTotalMsgRcv ...
+func (a *AMQPHandler) IncTotalMsgRcv() {
+	a.totalCount++
+}
+
+//IncTotalMsgProcessed ...
+func (a *AMQPHandler) IncTotalMsgProcessed() {
+	a.totalProcessed++
+}
+
+//GetTotalMsgRcv ...
+func (a *AMQPHandler) GetTotalMsgRcv() int64 {
+	return a.totalCount
+}
+
+//GetTotalMsgProcessed ...
+func (a *AMQPHandler) GetTotalMsgProcessed() int64 {
+	return a.totalProcessed
+}
+
+//Describe ...
+func (a *AMQPHandler) Describe(ch chan<- *prometheus.Desc) {
+
+	ch <- a.totalCountDesc
+	ch <- a.totalProcessedDesc
+}
+
+//Collect implements prometheus.Collector.
+func (a *AMQPHandler) Collect(ch chan<- prometheus.Metric) {
+
+	ch <- prometheus.MustNewConstMetric(a.totalCountDesc, prometheus.CounterValue, float64(a.totalCount))
+	ch <- prometheus.MustNewConstMetric(a.totalProcessedDesc, prometheus.CounterValue, float64(a.totalProcessed))
+
 }
 
 //GetNotifier  Get notifier
@@ -175,6 +245,7 @@ func (s *AMQPServer) start() {
 	for {
 		select {
 		case m := <-messages:
+			s.GetHandler().IncTotalMsgRcv()
 			debugr("Debug: Getting message from AMQP%v\n", m.Body())
 			amqpBinary := m.Body().(amqp.Binary)
 			debugr("Debug: Sending message to Notifier channel")

@@ -44,7 +44,14 @@ func eventusage() {
 	flag.PrintDefaults()
 }
 
-var debuge = func(format string, data ...interface{}) {} // Default no debugging output
+var (
+	debuge          = func(format string, data ...interface{}) {} // Default no debugging output
+	amqpEventServer *amqp10.AMQPServer
+	amqpHandler     *amqp10.AMQPHandler
+	serverConfig    saconfig.EventConfiguration
+	elasticClient   *saelastic.ElasticClient
+)
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -60,7 +67,6 @@ func main() {
 	fResetIndex := flag.Bool("resetIndex", false, "Optional Clean all index before on start (default false)")
 
 	flag.Parse()
-	var serverConfig saconfig.EventConfiguration
 	if len(*fConfigLocation) > 0 { //load configuration
 		serverConfig = saconfig.LoadEventConfig(*fConfigLocation)
 		if *fDebug {
@@ -129,16 +135,15 @@ func main() {
 	//mertic handler for event mertics to check health status
 	applicationHealth := cacheutil.NewApplicationHealthCache()
 	metricHandler := apihandler.NewAppStateEventMetricHandler(applicationHealth)
+	amqpHandler := amqp10.NewAMQPHandler("Event Consumer")
 	debuge("Debug:Config %#v\n", serverConfig)
 
-	var amqpEventServer *amqp10.AMQPServer
 	///Metric Listener
 	amqpEventsurl := fmt.Sprintf("amqp://%s", serverConfig.AMQP1EventURL)
 	log.Printf("Connecting to AMQP1 : %s\n", amqpEventsurl)
-	amqpEventServer = amqp10.NewAMQPServer(amqpEventsurl, serverConfig.Debug, -1)
+	amqpEventServer = amqp10.NewAMQPServer(amqpEventsurl, serverConfig.Debug, -1, amqpHandler)
 
 	log.Printf("Listening.....\n")
-	var elasticClient *saelastic.ElasticClient
 	log.Printf("Connecting to ElasticSearch : %s\n", serverConfig.ElasticHostURL)
 	elasticClient = saelastic.CreateClient(serverConfig.ElasticHostURL, serverConfig.ResetIndex, serverConfig.Debug)
 	applicationHealth.ElasticSearchState = 1
@@ -149,7 +154,8 @@ func main() {
 	********************************************************************************/
 	//configure http alert route to amqp1.0
 	if serverConfig.APIEnabled {
-		prometheus.MustRegister(metricHandler)
+		prometheus.MustRegister(metricHandler, amqpHandler)
+
 		// Including these stats kills performance when Prometheus polls with multiple targets
 		prometheus.Unregister(prometheus.NewProcessCollector(os.Getpid(), ""))
 		prometheus.Unregister(prometheus.NewGoCollector())
@@ -181,6 +187,7 @@ func main() {
 		select {
 		case event := <-amqpEventServer.GetNotifier():
 			//log.Printf("Event occured : %#v\n", event)
+			amqpEventServer.GetHandler().IncTotalMsgProcessed()
 			indexName, indexType, err := saelastic.GetIndexNameType(event)
 			if err != nil {
 				log.Printf("Failed to read event %s type in main %s\n", event, err)

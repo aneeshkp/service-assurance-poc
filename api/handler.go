@@ -77,8 +77,6 @@ func (ah Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch status {
 		case http.StatusNotFound:
 			http.NotFound(w, r)
-			// And if we wanted a friendlier error page:
-			// err := ah.renderTemplate(w, "http_404.tmpl", nil)
 		case http.StatusInternalServerError:
 			http.Error(w, http.StatusText(status), status)
 		default:
